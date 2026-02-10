@@ -154,8 +154,27 @@ class FMassStorageSync:
             title="Tranfert des fichiers.",
                  )
         if reponse == "OK":
-            pass
-        
+            logging.info("Supression des fichiers et dossiers source.")
+            nb_files = self.del_tree(source)   
+            sg.popup_ok(f"{nb_files} fichier(s) supprimé(s) de la source.",
+                        title="Nettoyage de la source.")
+
+    def del_tree(self, p:Path, level=0)->int:
+        '''
+        Vide un repertoire récursivement
+        (sans supprimer le répertoir en lui même)
+        renvoie le nombre de fichier supprimés
+        '''
+        nb_files = 0
+        for child in p.iterdir():
+            if child.is_file():
+                child.unlink()
+                nb_files+=1
+            else:
+                nb_files += self.del_tree(child, level+1)
+        if level>0:
+            p.rmdir()
+        return nb_files
 
     def open_folder(self):
         '''
