@@ -9,6 +9,7 @@ import configparser
 import pystray
 from PIL import Image
 import FreeSimpleGUI  as sg
+import dirsync
 
 from fmount import Fmount
 
@@ -22,6 +23,7 @@ class FMassStorageSync:
     default_sync_interval = 1.0  # Intervalle de scan des volumes montés par défaut en secondes
     default_icon_path = "icon.png"  # Chemin par défaut de l'icône de la barre des tâches
     sleep_before_sync = 2.0  # Délai avant de synchroniser pour que notre popup se place devant l'explorateur de fichiers
+    defaut_remote_path = 'DCIM'
 
     def __init__(self, ini_path:str='fusb_mass_storage_sync.ini'):
         self.ini_path = Path(ini_path)
@@ -58,46 +60,54 @@ class FMassStorageSync:
         return self.config.get('Settings', 'local_folder', fallback=None)
     @local_folder.setter
     def local_folder(self, value):
-        if not self.config.has_section('Settings'):
-            self.config.add_section('Settings')
-        self.config.set('Settings', 'local_folder', value)
-        self.write_ini()
+        self.set_settings('local_folder', value)
+
+    @property
+    def remote_path(self):
+        remote_path =  self.config.get('Settings', 'remote_path', fallback=None)
+        if remote_path is None:
+            remote_path = self.defaut_remote_path
+            self.set_settings("remote_path", remote_path)
+        return remote_path
+    @remote_path.setter
+    def remote_path(self, value):
+        self.set_settings('remote_path', value)
 
     @property
     def icon_path(self):
         icon_path = self.config.get('Settings', 'icon_path', fallback=None)
         if icon_path is None:
             icon_path = self.default_icon_path  # Définir la valeur par défaut si non définie
-            self.config.set('Settings', 'icon_path', str(icon_path))  # Enregistrer
-            self.write_ini()
+            self.set_settings('icon_path', str(icon_path))
         return icon_path
     @icon_path.setter
     def icon_path(self, value):
-        if not self.config.has_section('Settings'):
-            self.config.add_section('Settings')
-        self.config.set('Settings', 'icon_path', value)
-        self.write_ini()
+        self.set_settings('icon_path', value)
 
     @property
     def sync_interval(self):
         sync_interval = self.config.getfloat('Settings', 'sync_interval', fallback=None)
         if sync_interval is None:
             sync_interval = self.default_sync_interval  # Définir la valeur par défaut si non définie
-            self.config.set('Settings', 'sync_interval', sync_interval)  # Enregistrer la valeur par défaut dans le fichier INI
-            self.write_ini()
+            self.set_settings('sync_interval', sync_interval) # Enregistrer la valeur par défaut dans le fichier INI
         return sync_interval
     @sync_interval.setter
     def sync_interval(self, value):
+        self.set_settings('sync_interval', value)
+
+    def set_settings(self, key:str, value):
+        '''Met à jour la config
+        '''
         if not self.config.has_section('Settings'):
             self.config.add_section('Settings')
-        self.config.set('Settings', 'sync_interval', value)
+        self.config.set('Settings', key , str(value))
         self.write_ini()
+
 
     def write_ini(self):
         '''
         Enregistre la configuration dans un fichier INI.
         '''
-
         with open(self.ini_path, 'w') as configfile:
             self.config.write(configfile)
         logging.info(f"Configuration saved to INI file at {self.ini_path}")
@@ -134,6 +144,37 @@ class FMassStorageSync:
         (Cette fonction doit être implémentée pour effectuer la synchronisation réelle des fichiers.)
         '''
         logging.info(f"Synchronizing drive {drive} with local folder {self.local_folder}")
+        source = Path(drive) / self.remote_path
+        target = Path(self.local_folder)
+        result = dirsync.sync(sourcedir=source, targetdir=target, action='sync')
+        logging.info(f"result = {result}")
+        #TODO : sg.popup_animated
+        reponse = sg.popup_ok_cancel(
+            f"Transfert terminé ({len(result)} fichier(s) copié(s)).\n Voulez vous effacer la source?",
+            title="Tranfert des fichiers.",
+                 )
+        if reponse == "OK":
+            logging.info("Supression des fichiers et dossiers source.")
+            nb_files = self.del_tree(source)   
+            sg.popup_ok(f"{nb_files} fichier(s) supprimé(s) de la source.",
+                        title="Nettoyage de la source.")
+
+    def del_tree(self, p:Path, level=0)->int:
+        '''
+        Vide un repertoire récursivement
+        (sans supprimer le répertoir en lui même)
+        renvoie le nombre de fichier supprimés
+        '''
+        nb_files = 0
+        for child in p.iterdir():
+            if child.is_file():
+                child.unlink()
+                nb_files+=1
+            else:
+                nb_files += self.del_tree(child, level+1)
+        if level>0:
+            p.rmdir()
+        return nb_files
 
     def open_folder(self):
         '''
