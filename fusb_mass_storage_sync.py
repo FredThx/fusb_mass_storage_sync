@@ -30,7 +30,10 @@ class FMassStorageSync:
         self.config = self.read_ini()
         self.fmount = Fmount()
         logging.info(f"FMassStorageSync initialized with local folder: {self.local_folder}")
-        image = Image.open(self.icon_path)
+        try:
+            image = Image.open(self.icon_path)
+        except Exception:
+            image = None
         self.icon = pystray.Icon("FMassStorageSync",
                                  icon=image,
                                  title="FMassStorageSync",
